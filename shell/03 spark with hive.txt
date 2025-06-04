@@ -1,0 +1,14 @@
+#### Create Bucket in GCP ####
+gsutil mb gs://aa_25_stocks_data/
+---- has to be unique globally ----
+
+#### Files to HDFS ####
+python filter_and_upload.py
+
+#### csv files from HDFS to Hive ####
+hive -f sentiment_stocks_workflow.hql
+
+#### Check final table created ####
+hive -f preview_sentiment_stocks.hql
+
+

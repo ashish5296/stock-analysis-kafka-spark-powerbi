@@ -1,0 +1,13 @@
+######## BigQuery Bucket Dump ############
+
+stocks
+gsutil cp stocks_output/*.csv gs://final_project_stocks_data/stocks.csv
+
+
+news
+gsutil cp full_output/*.csv gs://final_project_stocks_data/news
+
+
+aggregate
+gsutil cp aggregated_output/*.csv gs://final_project_stocks_data/aggregated
+

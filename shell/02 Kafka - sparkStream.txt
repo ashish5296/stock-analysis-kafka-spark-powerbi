@@ -1,0 +1,127 @@
+#### Zookeeper #####
+// star zookeeper from zookeeper directory (only once during a session)
+
+bin/zkServer.sh start
+
+#### KAFKA ####
+//start kafka broker from kafka directory (only need to do this once during the session)
+
+nohup bin/kafka-server-start etc/kafka/server.properties > /dev/null 2>&1 &
+
+// Run Producers
+python news_producer.py
+ 
+python stocks_producer.py
+
+
+#### SPARK ####
+// start spark
+spark-shell --master local --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0
+
+
+####### NEWS #####
+// import statements
+import org.apache.spark.sql._
+import org.apache.spark.sql.functions._
+import org.apache.spark.sql.types._
+
+// Define schema
+val newsSchema = new StructType(Array(
+    StructField("date", DateType, true),
+    StructField("source", StringType, true),
+    StructField("polarity", DoubleType, true)
+))
+
+// Read from Kafka
+val news = spark.readStream.format("kafka")
+  .option("kafka.bootstrap.servers", "localhost:9092")
+  .option("subscribe", "news-topic")
+  .option("failOnDataLoss", "false") 
+  .load()
+
+// Parse JSON messages
+val newsStream = news.selectExpr("CAST(value AS STRING) as json")
+    .select(from_json(col("json"), newsSchema).as("data"))
+    .selectExpr("data.date", "data.source", "data.polarity")
+
+// Ensure proper timestamp format
+val formattedStream = newsStream
+    .withColumn("date", to_timestamp(col("date"), "yyyy-MM-dd")) // Convert date to timestamp
+    .filter(col("date").isNotNull) // Filter invalid timestamps
+
+// Stream 1: Write full input data to CSV
+val fullDataQuery = formattedStream.repartition(1)
+    .writeStream
+    .outputMode("append") 
+    .format("csv")        
+    .option("path", "file:////home/a_ashish5296/full_output") 
+    .option("checkpointLocation", "file:////home/a_ashish5296/full_chkpt")
+    .start()
+
+// Stream 2: Perform aggregation and write summarized data
+val aggregatedSentiment = formattedStream
+    .withWatermark("date", "30 seconds") // Allow 1 day tolerance for late data
+    .groupBy("date")
+    .agg(avg("polarity").as("avg_sentiment"))
+
+val summarizedQuery = aggregatedSentiment.repartition(1)
+    .writeStream
+    .outputMode("append") 
+    .format("csv")        
+    .option("path", "file:////home/a_ashish5296/aggregated_output") 
+    .option("checkpointLocation", "file:////home/a_ashish5296/aggregated_chkpt") 
+    .start()
+
+// Wait for termination of both streams
+fullDataQuery.awaitTermination()
+summarizedQuery.awaitTermination()
+
+
+#### STOCKS ####
+// import statements
+import org.apache.spark.sql._
+import org.apache.spark.sql.functions._
+import org.apache.spark.sql.types._
+
+// Define schema
+val stockSchema = new StructType(Array(
+    StructField("date", DateType, true), 
+    StructField("symbol", StringType, true),
+    StructField("open", DoubleType, true),
+    StructField("close", DoubleType, true),
+    StructField("high", DoubleType, true),
+    StructField("low", DoubleType, true),
+    StructField("movement_class", IntegerType, true)  
+))
+
+// Read from Kafka
+val stocks = spark.readStream.format("kafka")
+  .option("kafka.bootstrap.servers", "localhost:9092")
+  .option("subscribe", "my-stock-data")
+  .option("failOnDataLoss", "false") // Prevent job failure if data loss occurs
+  .load()
+
+// Parse JSON messages
+val stockStream = stocks.selectExpr("CAST(value AS STRING) as json")
+    .select(from_json(col("json"), stockSchema).as("stock"))
+    .selectExpr(
+        "stock.date", 
+        "stock.symbol", 
+        "stock.open", 
+        "stock.close", 
+        "stock.high",
+        "stock.low", 
+        "stock.movement_class"
+    )
+
+// Write output to file sink in append mode
+val query = stockStream.writeStream
+    .outputMode("append") // Append new records to the file
+    .format("csv")        
+    .option("path", "file:////home/a_ashish5296/stocks_output")
+    .option("checkpointLocation", "file:////home/a_ashish5296/stocks_chkpt") 
+    .start()
+
+query.awaitTermination()
+
+
