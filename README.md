@@ -9,3 +9,4 @@ This project demonstrates a real-time news sentiment analysis pipeline built on 
 - Power BI – Interactive dashboards and visualization
 
 # YouTube walkthrough
+https://youtu.be/KPEUTjTbEwk
